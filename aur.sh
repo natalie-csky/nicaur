@@ -32,7 +32,7 @@ install()
 {
 	printf "Installing $1...\n"
 
-	makepkg -si #2>&1 | tee makepkg.out
+	makepkg -si
 
 	has_missing_dependency=$(cat makepkg.out | grep -Po 'Missing dependencies')
 	
@@ -47,31 +47,30 @@ install()
 
 	printf "Attempting to install again...\n"
 
-	#rm makepkg.out
 	return 1
 }
 
 
 main()
 {
-	if [[ -z $1 ]]; then
-		printf "No arguments given.\n"
-		exit 1
-	fi
-
-	working_directory=$(pwd)
 	cd ~/Downloads/aur
-
-	git clone "https://aur.archlinux.org/$1.git"
+	
+	ls $1 2>/dev/null || {
+		git clone "https://aur.archlinux.org/$1.git"
+	}
 
 	cd $1
-
+	
 	while ! install $1; do
 		continue
 	done
 
-	cd $working_directory
 	return 0
 }
+
+if [[ $# -eq 0 ]]; then
+	printf "No arguments given.\n"
+	exit 1
+fi
 
 main $1
