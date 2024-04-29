@@ -9,28 +9,35 @@ set -u
 # if any command in a pipeline fails, that return code will be used as the return code of the whole pipeline
 set -o pipefail
 
+ME=$(basename "$0")
+
 DEBUG=false
 REMOVE=false
 QUERY=false
 SYNC=false
 operation_count=0
 
+#targets=()
+declare -a targets
+
 evaluate_arguments()
 {
-	for var in $@; do
+	arguments_left=("$*")
 
-		if [[ ${var:0:1} == "-" ]]; then
+	for arg in $@; do
 
-			argument_length=${#var}
+		if [[ ${arg:0:1} == "-" ]]; then
+			arguments_left=${arguments_left/-}
+			argument_length=${#arg}
 
 			if [[ $argument_length -eq 1 ]]; then
-				printf "error: no argument specified...\n"
+				printf "$ME: no argument specified\n"
 				exit 1
 			fi
 
 			for ((j=1;j<=argument_length-1;j++)); do
 
-				case ${var:$j:1} in
+				case ${arg:$j:1} in
 					"d")
 						DEBUG=true	
 						;;
@@ -47,21 +54,33 @@ evaluate_arguments()
 						let "operation_count=operation_count+1"
 						;;
 					*)
-						printf "error: invalid option -- '${var:$j:1}'\n"
+						printf "$ME: invalid option -- '${arg:$j:1}'\n"
 						exit 1
 						;;
 				esac
 
+				arguments_left=${arguments_left/${arg:$j:1}}
 			done
 		fi
 	done
 
 	if [[ $operation_count -ge 2 ]]; then
-		printf "error: only one operation may be used at a time...\n"
+		printf "$ME: only one operation may be used at a time\n"
 		exit 1
 	fi
 
-	exit 0
+	arguments_left=$(echo $arguments_left | awk '{$1=$1};1')
+
+	for arg in $arguments_left; do
+		targets+=($arg)
+	done
+
+	# TODO maybe figure something out that doesn't involve unsetting 'u'
+	set +u
+	if [[ $operation_count -eq 1 && ${#targets} -eq 0 ]]; then
+		printf "$ME: no targets specified\n"
+	fi
+	set -u
 }
 
 install()
@@ -71,6 +90,7 @@ install()
 	makepkg -si
 
 	# TODO maybe make grep output quiet?
+	# TODO also, remove makepkg.out...
 	has_missing_dependency=$(cat makepkg.out | grep -Po 'Missing dependencies')
 	
 	if [[ -n ${has_missing_dependency} ]]; then
@@ -78,7 +98,7 @@ install()
 		printf "Missing dependency found: $dependency\n"
 		aur $dependency
 	else
-		printf "$1 successfully installed.\n"
+		printf "$1 successfully installed\n"
 		return 0
 	fi
 
@@ -89,15 +109,12 @@ install()
 
 download()
 {
-# if ls finds an existing package, it won't clone
-# if it doesn't it clones
-# if repo is empty, it fails and removes the empty repo	
 	{
 	    ls $1 > /dev/null 2>&1 &&
 		printf "$1 already cloned, attempting to install...\n"
 	} || {
 	    if git clone "https://aur.archlinux.org/$1.git" 2>&1 | grep -Pq 'cloned an empty repository.'; then
-	    	printf "error: $1 does not exist...\n"
+	    	printf "$ME: $1 does not exist\n"
 			rm -r $1
 			exit 1
 	    fi
@@ -119,6 +136,15 @@ main()
 	return 0
 }
 
-evaluate_arguments "$@"
+if [[ $# -eq 0 ]]; then
+	printf "$ME: no operation specified\n"
+	exit 1
+fi
 
-main $1
+evaluate_arguments $@
+
+if [[ $DEBUG = true ]]; then
+	set -x
+fi
+
+main
