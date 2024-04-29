@@ -15,10 +15,16 @@ DEBUG=false
 REMOVE=false
 QUERY=false
 SYNC=false
+SEARCH=false
+
 operation_count=0
 
 #targets=()
 declare -a targets
+
+if [[ $EUID -eq 0 ]]; then	
+	HOME=$(getent passwd $SUDO_USER | cut -d: -f6)
+fi
 
 evaluate_arguments()
 {
@@ -53,6 +59,9 @@ evaluate_arguments()
 						REMOVE=true
 						let "operation_count=operation_count+1"
 						;;
+					"s")
+						SEARCH=true
+						;;
 					*)
 						printf "$ME: invalid option -- '${arg:$j:1}'\n"
 						exit 1
@@ -79,8 +88,16 @@ evaluate_arguments()
 	set +u
 	if [[ $operation_count -eq 1 && ${#targets} -eq 0 ]]; then
 		printf "$ME: no targets specified\n"
+		exit 1
 	fi
 	set -u
+
+	if [[ $SEARCH = true ]]; then
+		if [[ $SYNC = false && $QUERY = false ]]; then
+			printf "$ME: invalid option '-s'\n"
+			exit 1
+		fi
+	fi
 }
 
 install()
@@ -114,11 +131,74 @@ download()
 		printf "$1 already cloned, attempting to install...\n"
 	} || {
 	    if git clone "https://aur.archlinux.org/$1.git" 2>&1 | grep -Pq 'cloned an empty repository.'; then
-	    	printf "$ME: $1 does not exist\n"
+	    	printf "$ME: target not found: $1\n"
 			rm -r $1
 			exit 1
 	    fi
 	}
+}
+
+query()
+{
+	for target in $targets; do
+		printf "$ME: querying local packages is not yet implemented... :(\n"
+		exit 1
+	done
+}
+
+remove()
+{
+	if [[ $EUID -ne 0 ]]; then
+		printf "$ME: you cannot perform this operation unless you are root.\n"
+		exit 1
+	fi
+
+	for target in ${targets[*]}; do
+		pacman -Rs $target &&
+		rm -r $HOME/.aur/$target
+	done
+}
+
+sync()
+{
+	for target in ${targets[*]}; do
+		repo_exists=$(git ls-remote "https://aur.archlinux.org/$target.git")
+		if [[ -z $repo_exists ]]; then
+			printf "$ME: target not found: $target\n"
+			exit 1
+		fi
+	done
+
+	if [[ $SEARCH = true ]]; then
+		for target in ${targets[*]}; do
+			
+			contents=$(curl -s https://aur.archlinux.org/packages/$target)
+			contents=${contents/"&#39;"/"'"}
+			contents=${contents/"&amp;"/"&"}
+
+			package_details=$(echo $contents | grep -o '<h2>Package Details.*</h2>')
+			package_details=${package_details/"<h2>Package Details: "}
+			package_details=${package_details/"</h2>"}
+
+			description=$(echo $contents | grep -o '<th>Description:</th>.*</td>')
+			description=${description/"<th>Description:</th> <td class=\"wrap\">"}
+			description=$(echo $description | cut -f1 -d"<")
+
+			printf "$package_details\n"
+			printf "\t$description\n"
+		done
+
+		exit 1
+	fi
+
+	cd ~/.aur
+
+	download $target
+	cd $target
+
+	while ! install $target; do
+		continue
+	done
 }
 
 main()
@@ -147,4 +227,14 @@ if [[ $DEBUG = true ]]; then
 	set -x
 fi
 
-main
+if [[ $QUERY = true ]]; then
+	query
+
+elif [[ $SYNC = true ]]; then
+	sync
+
+elif [[ $REMOVE = true ]]; then
+	remove
+fi
+
+exit 0
