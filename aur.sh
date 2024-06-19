@@ -2,7 +2,6 @@
 
 # TODO make sure to also check for *-git aur packages (is that actually necessary?)
 # TODO add proper dependency checks, using pacman -Syu directly (makepkg -si doesn't do the trick that often...)
-# TODO replace current site-scraping with using the Aurweb RPC interface
 
 # exit, when any command fails
 set -e
@@ -20,6 +19,7 @@ REMOVE=false
 QUERY=false
 SYNC=false
 SEARCH=false
+UPGRADE=false
 
 operation_count=0
 
@@ -65,6 +65,10 @@ evaluate_arguments()
 					"s")
 						SEARCH=true
 						;;
+
+					"u")	UPGRADE=true
+						;;
+
 					*)
 						printf "$ME: invalid option -- '${arg:$j:1}'\n"
 						exit 1
@@ -133,7 +137,8 @@ download()
 	    ls $1 > /dev/null 2>&1 &&
 		printf "$1 already cloned, attempting to install...\n"
 	} || {
-	    if git clone "https://aur.archlinux.org/$1.git" 2>&1 | grep -Pq 'cloned an empty repository.'; then
+	    if git clone "https://aur.archlinux.org/$1.git" 2>&1 | \
+		    grep -Pq 'cloned an empty repository.'; then
 	    	printf "$ME: target not found: $1\n"
 			rm -r $1
 			exit 1
@@ -181,25 +186,20 @@ sync()
 	done
 
 	if [[ $SEARCH = true ]]; then
-		for target in ${targets[*]}; do
-			
-			contents=$(curl -s https://aur.archlinux.org/packages/$target)
-			contents=${contents/"&#39;"/"'"}
-			contents=${contents/"&amp;"/"&"}
-
-			package_details=$(echo $contents | grep -o '<h2>Package Details.*</h2>')
-			package_details=${package_details/"<h2>Package Details: "}
-			package_details=${package_details/"</h2>"}
-
-			description=$(echo $contents | grep -o '<th>Description:</th>.*</td>')
-			description=${description/"<th>Description:</th> <td class=\"wrap\">"}
-			description=$(echo $description | cut -f1 -d"<")
-
-			printf "$package_details\n"
-			printf "\t$description\n"
+		for target in ${targets[*]}; do	
+			json=$(curl -X "GET" "https://aur.archlinux.org/rpc/v5/info/$target" \
+				2>/dev/null -H "accept: application/json")
+			name=$(jq -r '.results[].Name' <<< $json)
+			version=$(jq -r '.results[].Version' <<< $json)
+			description=$(jq -r '.results[].Description' <<< $json)
+			printf "$name $version\n\t$description\n"
 		done
+		exit 0
+	fi
 
-		exit 1
+	if [[ $UPGRADE = true ]]; then
+		printf "upgrading the package...\n"
+		exit 0
 	fi
 
 	cd ~/.aur
