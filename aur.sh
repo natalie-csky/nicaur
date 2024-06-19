@@ -1,5 +1,9 @@
 #!/usr/bin/bash
 
+# TODO make sure to also check for *-git aur packages (is that actually necessary?)
+# TODO add proper dependency checks, using pacman -Syu directly (makepkg -si doesn't do the trick that often...)
+# TODO replace current site-scraping with using the Aurweb RPC interface
+
 # exit, when any command fails
 set -e
 
@@ -19,7 +23,6 @@ SEARCH=false
 
 operation_count=0
 
-#targets=()
 declare -a targets
 
 if [[ $EUID -eq 0 ]]; then	
@@ -113,7 +116,7 @@ install()
 	if [[ -n ${has_missing_dependency} ]]; then
 		dependency=$(cat makepkg.out | grep -m 1 -Po '\-> \K.*')
 		printf "Missing dependency found: $dependency\n"
-		aur $dependency
+		nicaur $dependency
 	else
 		printf "$1 successfully installed\n"
 		return 0
@@ -154,9 +157,17 @@ remove()
 	fi
 
 	for target in ${targets[*]}; do
-		pacman -Rs $target &&
-		rm -r $HOME/.aur/$target
+		ERROR=false
+		pacman -Rs $target || ERROR=true
+		rm -r $HOME/.aur/$target 2>/dev/null || ERROR=true
+		if [[ $ERROR = true ]]; then
+			printf "hey :3\n"
+			exit 1
+		fi
+		
 	done
+
+	exit 0
 }
 
 sync()
@@ -199,21 +210,6 @@ sync()
 	while ! install $target; do
 		continue
 	done
-}
-
-main()
-{
-	cd ~/.aur
-	
-	download $1
-
-	cd $1
-	
-	while ! install $1; do
-		continue
-	done
-
-	return 0
 }
 
 if [[ $# -eq 0 ]]; then
